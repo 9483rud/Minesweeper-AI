@@ -11,9 +11,10 @@ export class NeuralNetwork {
   private epsilon: number = 0.3;
   private epsilonDecay: number = 0.9995;
   private minEpsilon: number = 0.01;
+  private inputSize: number = 0;
 
   constructor(inputSize: number, hiddenSizes: number[], outputSize: number) {
-    // Initialize layers
+    this.inputSize = inputSize;
     let prevSize = inputSize;
     
     for (const size of hiddenSizes) {
@@ -68,7 +69,6 @@ export class NeuralNetwork {
         for (let k = 0; k < current.length; k++) {
           sum += current[k] * layer.weights[k][j];
         }
-        // Apply ReLU for hidden layers, linear for output
         next.push(i < this.layers.length - 1 ? this.relu(sum) : sum);
       }
 
@@ -76,7 +76,6 @@ export class NeuralNetwork {
       activations.push(current);
     }
 
-    // Apply softmax to output
     current = this.softmax(current);
     activations[activations.length - 1] = current;
 
@@ -85,8 +84,6 @@ export class NeuralNetwork {
 
   train(input: number[], targetOutput: number[], reward: number): void {
     const { output, activations } = this.forward(input);
-    
-    // Backpropagation with reward scaling
     const scaledReward = Math.tanh(reward);
     
     let gradients = output.map((o, i) => (o - targetOutput[i]) * scaledReward);
@@ -115,14 +112,12 @@ export class NeuralNetwork {
   }
 
   getAction(validMoves: number[], state: number[], exploration: boolean = true): number {
-    // Epsilon-greedy exploration
     if (exploration && Math.random() < this.epsilon) {
       return validMoves[Math.floor(Math.random() * validMoves.length)];
     }
 
     const { output } = this.forward(state);
     
-    // Filter to valid moves and find best
     let bestMove = validMoves[0];
     let bestScore = output[bestMove];
     
@@ -157,23 +152,41 @@ export class NeuralNetwork {
     return output;
   }
 
+  // Methods for visualization
+  getLayerSizes(): number[] {
+    const sizes = [this.inputSize];
+    for (const layer of this.layers) {
+      sizes.push(layer.biases.length);
+    }
+    return sizes;
+  }
+
+  getWeight(layerIdx: number, fromNeuron: number, toNeuron: number): number {
+    if (layerIdx < 0 || layerIdx >= this.layers.length) return 0;
+    const layer = this.layers[layerIdx];
+    if (fromNeuron < 0 || fromNeuron >= layer.weights.length) return 0;
+    if (toNeuron < 0 || toNeuron >= layer.weights[fromNeuron].length) return 0;
+    return layer.weights[fromNeuron][toNeuron];
+  }
+
   save(): string {
     return JSON.stringify({
       layers: this.layers,
-      epsilon: this.epsilon
+      epsilon: this.epsilon,
+      inputSize: this.inputSize
     });
   }
 
   static load(data: string): NeuralNetwork {
     const parsed = JSON.parse(data);
-    const nn = new NeuralNetwork(1, [], 1); // Placeholder
+    const nn = new NeuralNetwork(parsed.inputSize || 81, [], 81);
     nn.layers = parsed.layers;
     nn.epsilon = parsed.epsilon;
+    nn.inputSize = parsed.inputSize || 81;
     return nn;
   }
 }
 
-// Helper function to convert board state to neural network input
 export function boardToInput(board: Cell[][]): number[] {
   const input: number[] = [];
   const rows = board.length;
@@ -185,15 +198,14 @@ export function boardToInput(board: Cell[][]): number[] {
       
       if (cell.isRevealed) {
         if (cell.isMine) {
-          input.push(-1); // Mine
+          input.push(-1);
         } else {
-          // Normalize adjacent mines count
           input.push(cell.adjacentMines / 8);
         }
       } else if (cell.isFlagged) {
-        input.push(-0.5); // Flagged
+        input.push(-0.5);
       } else {
-        input.push(0.5); // Hidden
+        input.push(0.5);
       }
     }
   }
@@ -201,7 +213,6 @@ export function boardToInput(board: Cell[][]): number[] {
   return input;
 }
 
-// Get valid moves (hidden, unflagged cells)
 export function getValidMoves(board: Cell[][]): number[] {
   const moves: number[] = [];
   const rows = board.length;
