@@ -64,11 +64,12 @@ function revealCell(board: Cell[][], row: number, col: number, config: GameConfi
 
   function flood(r: number, c: number) {
     if (r < 0 || r >= config.rows || c < 0 || c >= config.cols) return;
-    if (newBoard[r][c].isRevealed || newBoard[r][c].isFlagged) return;
+    if (newBoard[r][c].isRevealed || newBoard[r][c].isFlagged || newBoard[r][c].isMine) return;
 
     newBoard[r][c].isRevealed = true;
 
-    if (newBoard[r][c].adjacentMines === 0 && !newBoard[r][c].isMine) {
+    // Only flood if adjacent mines is 0
+    if (newBoard[r][c].adjacentMines === 0) {
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
           flood(r + dr, c + dc);
@@ -81,13 +82,20 @@ function revealCell(board: Cell[][], row: number, col: number, config: GameConfi
   return newBoard;
 }
 
-function checkWin(board: Cell[][]): boolean {
+function checkWin(board: Cell[][], config: GameConfig): boolean {
+  let revealedCount = 0;
+  let totalSafe = 0;
+  
   for (const row of board) {
     for (const cell of row) {
-      if (!cell.isMine && !cell.isRevealed) return false;
+      if (!cell.isMine) {
+        totalSafe++;
+        if (cell.isRevealed) revealedCount++;
+      }
     }
   }
-  return true;
+  
+  return revealedCount === totalSafe;
 }
 
 function getNumberColor(num: number): string {
@@ -139,26 +147,33 @@ export default function Minesweeper({ difficulty }: MinesweeperProps) {
     if (gameState === "won" || gameState === "lost") return;
     if (board[row][col].isFlagged || board[row][col].isRevealed) return;
 
-    let newBoard = board;
+    let currentBoard = board;
+    let currentConfig = config;
 
     if (firstClick) {
-      newBoard = placeMines(board, config, row, col);
+      currentBoard = placeMines(board, config, row, col);
+      currentConfig = config; // config doesn't change
       setFirstClick(false);
       setGameState("playing");
     }
 
-    newBoard = revealCell(newBoard, row, col, config);
+    const newBoard = revealCell(currentBoard, row, col, currentConfig);
 
     if (newBoard[row][col].isMine) {
       // Reveal all mines
-      newBoard = newBoard.map(r => r.map(c => 
+      const finalBoard = newBoard.map(r => r.map(c => 
         c.isMine ? { ...c, isRevealed: true } : c
       ));
-      setBoard(newBoard);
+      setBoard(finalBoard);
       setGameState("lost");
     } else {
       setBoard(newBoard);
-      if (checkWin(newBoard)) {
+      if (checkWin(newBoard, currentConfig)) {
+        // Reveal all remaining cells on win
+        const finalBoard = newBoard.map(r => r.map(c => 
+          c.isMine ? c : { ...c, isRevealed: true }
+        ));
+        setBoard(finalBoard);
         setGameState("won");
       }
     }
@@ -173,6 +188,63 @@ export default function Minesweeper({ difficulty }: MinesweeperProps) {
     newBoard[row][col].isFlagged = !newBoard[row][col].isFlagged;
     setBoard(newBoard);
     setFlagCount(prev => newBoard[row][col].isFlagged ? prev + 1 : prev - 1);
+  };
+
+  // Handle chord click (reveal adjacent cells if flags match)
+  const handleChordClick = (row: number, col: number) => {
+    if (gameState === "won" || gameState === "lost") return;
+    if (!board[row][col].isRevealed || board[row][col].adjacentMines === 0) return;
+
+    // Count adjacent flags
+    let flagCount = 0;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const nr = row + dr;
+        const nc = col + dc;
+        if (nr >= 0 && nr < config.rows && nc >= 0 && nc < config.cols) {
+          if (board[nr][nc].isFlagged) flagCount++;
+        }
+      }
+    }
+
+    // If flags match adjacent mines, reveal all non-flagged adjacent cells
+    if (flagCount === board[row][col].adjacentMines) {
+      let newBoard = board.map(r => r.map(c => ({ ...c })));
+      let hitMine = false;
+
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const nr = row + dr;
+          const nc = col + dc;
+          if (nr >= 0 && nr < config.rows && nc >= 0 && nc < config.cols) {
+            if (!newBoard[nr][nc].isFlagged && !newBoard[nr][nc].isRevealed) {
+              const revealed = revealCell(newBoard, nr, nc, config);
+              newBoard = revealed;
+              if (newBoard[nr][nc].isMine) {
+                hitMine = true;
+              }
+            }
+          }
+        }
+      }
+
+      if (hitMine) {
+        const finalBoard = newBoard.map(r => r.map(c => 
+          c.isMine ? { ...c, isRevealed: true } : c
+        ));
+        setBoard(finalBoard);
+        setGameState("lost");
+      } else {
+        setBoard(newBoard);
+        if (checkWin(newBoard, config)) {
+          const finalBoard = newBoard.map(r => r.map(c => 
+            c.isMine ? c : { ...c, isRevealed: true }
+          ));
+          setBoard(finalBoard);
+          setGameState("won");
+        }
+      }
+    }
   };
 
   const getCellSize = () => {
@@ -190,13 +262,13 @@ export default function Minesweeper({ difficulty }: MinesweeperProps) {
             <div className="flex items-center gap-2">
               <Bomb className="w-5 h-5 text-red-400" />
               <span className="text-xl font-mono font-bold text-slate-200">
-                {config.mines - flagCount}
+                {Math.max(0, config.mines - flagCount).toString().padStart(2, "0")}
               </span>
             </div>
             <div className="flex items-center gap-2">
               <Timer className="w-5 h-5 text-cyan-400" />
               <span className="text-xl font-mono font-bold text-slate-200">
-                {timer.toString().padStart(3, "0")}
+                {Math.min(999, timer).toString().padStart(3, "0")}
               </span>
             </div>
           </div>
@@ -249,6 +321,7 @@ export default function Minesweeper({ difficulty }: MinesweeperProps) {
                 key={`${rowIdx}-${colIdx}`}
                 onClick={() => handleCellClick(rowIdx, colIdx)}
                 onContextMenu={(e) => handleRightClick(e, rowIdx, colIdx)}
+                onDoubleClick={() => handleChordClick(rowIdx, colIdx)}
                 disabled={gameState === "won" || gameState === "lost"}
                 className={`${getCellSize()} rounded-sm flex items-center justify-center font-bold transition-all ${
                   cell.isRevealed
@@ -281,6 +354,7 @@ export default function Minesweeper({ difficulty }: MinesweeperProps) {
         <ul className="text-xs text-slate-500 space-y-1">
           <li>• <strong>Left-click</strong> to reveal a cell</li>
           <li>• <strong>Right-click</strong> to place/remove a flag</li>
+          <li>• <strong>Double-click</strong> on revealed number to chord (reveal adjacent cells if flags match)</li>
           <li>• Numbers show adjacent mines (0-8)</li>
           <li>• First click is always safe!</li>
         </ul>
