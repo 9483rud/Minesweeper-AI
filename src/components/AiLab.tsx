@@ -1,11 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Play, Pause, RotateCcw, Activity, TrendingUp, Brain, Zap } from "lucide-react";
+import { Play, Pause, RotateCcw, Activity, TrendingUp, Brain, Zap, Network } from "lucide-react";
 import { Cell, TrainingMetrics } from "../types/game";
 import { NeuralNetwork, boardToInput, getValidMoves } from "../lib/neuralNetwork";
 import { Button } from "./ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card";
 
 const CONFIG = { rows: 9, cols: 9, mines: 10 };
+const NUM_VISIBLE_GAMES = 12;
+
+interface GameInstance {
+  id: number;
+  board: Cell[][];
+  gameOver: boolean;
+  gameWon: boolean;
+  moves: number;
+  firstClick: boolean;
+}
 
 function createEmptyBoard(rows: number, cols: number): Cell[][] {
   return Array.from({ length: rows }, (_, row) =>
@@ -91,6 +101,163 @@ function checkWin(board: Cell[][]): boolean {
   return true;
 }
 
+// Neural Network Visualization Component
+function NetworkVisualization({ network }: { network: NeuralNetwork | null }) {
+  if (!network) return null;
+
+  const layers = network.getLayerSizes();
+  const maxNeurons = Math.max(...layers);
+  const layerSpacing = 120;
+  const neuronSpacing = 28;
+  const svgWidth = layers.length * layerSpacing + 60;
+  const svgHeight = maxNeurons * neuronSpacing + 60;
+
+  // Generate positions for each neuron
+  const neuronPositions: { x: number; y: number }[][] = [];
+  
+  layers.forEach((neuronCount, layerIdx) => {
+    const layerPositions: { x: number; y: number }[] = [];
+    const startY = (svgHeight - neuronCount * neuronSpacing) / 2;
+    
+    for (let i = 0; i < neuronCount; i++) {
+      layerPositions.push({
+        x: layerIdx * layerSpacing + 40,
+        y: startY + i * neuronSpacing + 20,
+      });
+    }
+    neuronPositions.push(layerPositions);
+  });
+
+  // Sample some connections (not all, for performance)
+  const connections: { x1: number; y1: number; x2: number; y2: number; weight: number }[] = [];
+  
+  for (let l = 0; l < neuronPositions.length - 1; l++) {
+    const currentLayer = neuronPositions[l];
+    const nextLayer = neuronPositions[l + 1];
+    
+    // Sample connections
+    for (let i = 0; i < currentLayer.length; i++) {
+      for (let j = 0; j < nextLayer.length; j++) {
+        if (Math.random() < 0.3) { // Only show 30% of connections
+          const weight = network.getWeight(l, i, j);
+          connections.push({
+            x1: currentLayer[i].x,
+            y1: currentLayer[i].y,
+            x2: nextLayer[j].x,
+            y2: nextLayer[j].y,
+            weight,
+          });
+        }
+      }
+    }
+  }
+
+  return (
+    <div className="bg-slate-800/50 rounded-lg p-4 overflow-auto">
+      <svg width={svgWidth} height={svgHeight} className="mx-auto">
+        {/* Connections */}
+        {connections.map((conn, idx) => (
+          <line
+            key={idx}
+            x1={conn.x1}
+            y1={conn.y1}
+            x2={conn.x2}
+            y2={conn.y2}
+            stroke={conn.weight > 0 ? "rgba(52, 211, 153, 0.3)" : "rgba(248, 113, 113, 0.3)"}
+            strokeWidth={Math.abs(conn.weight) * 2 + 0.5}
+          />
+        ))}
+        
+        {/* Neurons */}
+        {neuronPositions.map((layer, layerIdx) => (
+          <g key={layerIdx}>
+            {layer.map((neuron, neuronIdx) => (
+              <g key={neuronIdx}>
+                <circle
+                  cx={neuron.x}
+                  cy={neuron.y}
+                  r={10}
+                  fill={layerIdx === 0 ? "rgb(52, 211, 153)" : layerIdx === neuronPositions.length - 1 ? "rgb(167, 139, 250)" : "rgb(100, 116, 139)"}
+                  stroke="white"
+                  strokeWidth={1}
+                  className="transition-all duration-300"
+                />
+                {layerIdx === 0 && neuronIdx < 3 && (
+                  <text
+                    x={neuron.x - 16}
+                    y={neuron.y + 4}
+                    fill="rgb(148, 163, 184)"
+                    fontSize="8"
+                    textAnchor="end"
+                  >
+                    {neuronIdx === 0 ? "Cell" : neuronIdx === 1 ? "State" : "..."}
+                  </text>
+                )}
+                {layerIdx === neuronPositions.length - 1 && neuronIdx < 3 && (
+                  <text
+                    x={neuron.x + 16}
+                    y={neuron.y + 4}
+                    fill="rgb(148, 163, 184)"
+                    fontSize="8"
+                    textAnchor="start"
+                  >
+                    {neuronIdx === 0 ? "Move" : neuronIdx === 1 ? "Score" : "..."}
+                  </text>
+                )}
+              </g>
+            ))}
+          </g>
+        ))}
+        
+        {/* Layer Labels */}
+        {layers.map((_, layerIdx) => (
+          <text
+            key={layerIdx}
+            x={layerIdx * layerSpacing + 40}
+            y={svgHeight - 10}
+            fill="rgb(148, 163, 184)"
+            fontSize="10"
+            textAnchor="middle"
+          >
+            {layerIdx === 0 ? "Input" : layerIdx === layers.length - 1 ? "Output" : `Hidden ${layerIdx}`}
+          </text>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+// Mini Board Component
+function MiniBoard({ game }: { game: GameInstance }) {
+  return (
+    <div 
+      className={`grid gap-px p-1 rounded ${
+        game.gameWon ? "bg-emerald-900/50" : game.gameOver ? "bg-red-900/50" : "bg-slate-800"
+      }`}
+      style={{ gridTemplateColumns: `repeat(${CONFIG.cols}, minmax(0, 1fr))` }}
+    >
+      {game.board.map((row, rowIdx) =>
+        row.map((cell, colIdx) => (
+          <div
+            key={`${rowIdx}-${colIdx}`}
+            className={`w-3 h-3 rounded-sm flex items-center justify-center text-[6px] font-bold ${
+              cell.isRevealed
+                ? cell.isMine
+                  ? "bg-red-500 text-white"
+                  : cell.adjacentMines > 0
+                    ? "bg-slate-600 text-slate-200"
+                    : "bg-slate-700"
+                : "bg-slate-600"
+            }`}
+          >
+            {cell.isRevealed && !cell.isMine && cell.adjacentMines > 0 ? cell.adjacentMines : ""}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 export default function AILab() {
   const [isTraining, setIsTraining] = useState(false);
   const [learningRate, setLearningRate] = useState(0.001);
@@ -104,11 +271,20 @@ export default function AILab() {
     totalMoves: 0,
     recentWins: [],
   });
-  const [currentBoard, setCurrentBoard] = useState<Cell[][]>(createEmptyBoard(CONFIG.rows, CONFIG.cols));
-  const [confidenceMap, setConfidenceMap] = useState<number[]>([]);
+  const [visibleGames, setVisibleGames] = useState<GameInstance[]>(() =>
+    Array.from({ length: NUM_VISIBLE_GAMES }, (_, i) => ({
+      id: i,
+      board: createEmptyBoard(CONFIG.rows, CONFIG.cols),
+      gameOver: false,
+      gameWon: false,
+      moves: 0,
+      firstClick: true,
+    }))
+  );
   
   const networkRef = useRef<NeuralNetwork | null>(null);
   const trainingRef = useRef<boolean>(false);
+  const gamesRef = useRef<GameInstance[]>(visibleGames);
 
   // Initialize or load network
   useEffect(() => {
@@ -139,49 +315,54 @@ export default function AILab() {
     }
   }, [metrics.gamesPlayed]);
 
-  const playGame = useCallback((): { won: boolean; moves: number } => {
-    if (!networkRef.current) return { won: false, moves: 0 };
-
-    let board = createEmptyBoard(CONFIG.rows, CONFIG.cols);
-    let firstClick = true;
-    let moves = 0;
-    let gameOver = false;
-    let gameWon = false;
-
-    while (!gameOver && !gameWon && moves < 200) {
-      const validMoves = getValidMoves(board);
-      if (validMoves.length === 0) break;
-
-      const state = boardToInput(board);
-      const move = networkRef.current.getAction(validMoves, state, true);
-      
-      const row = Math.floor(move / CONFIG.cols);
-      const col = move % CONFIG.cols;
-
-      if (firstClick) {
-        board = placeMinesSafe(board, CONFIG.mines, row, col);
-        firstClick = false;
-      }
-
-      board = revealCell(board, row, col);
-      moves++;
-
-      if (board[row][col].isMine) {
-        gameOver = true;
-        const targetOutput = new Array(CONFIG.rows * CONFIG.cols).fill(0);
-        targetOutput[move] = -1;
-        networkRef.current.train(state, targetOutput, -1);
-      } else {
-        gameWon = checkWin(board);
-        const targetOutput = new Array(CONFIG.rows * CONFIG.cols).fill(0);
-        targetOutput[move] = 1;
-        networkRef.current.train(state, targetOutput, gameWon ? 1 : 0.1);
-      }
+  const stepGame = useCallback((game: GameInstance): { game: GameInstance; won: boolean; done: boolean } => {
+    if (!networkRef.current || game.gameOver || game.gameWon) {
+      return { game, won: false, done: true };
     }
 
-    networkRef.current.decayEpsilon();
+    let newBoard = game.board;
+    
+    const validMoves = getValidMoves(newBoard);
+    if (validMoves.length === 0) {
+      return { game: { ...game, gameWon: checkWin(newBoard), gameOver: !checkWin(newBoard) }, won: checkWin(newBoard), done: true };
+    }
 
-    return { won: gameWon, moves };
+    const state = boardToInput(newBoard);
+    const move = networkRef.current.getAction(validMoves, state, true);
+    
+    const row = Math.floor(move / CONFIG.cols);
+    const col = move % CONFIG.cols;
+
+    if (game.firstClick) {
+      newBoard = placeMinesSafe(newBoard, CONFIG.mines, row, col);
+    }
+
+    newBoard = revealCell(newBoard, row, col);
+    const newMoves = game.moves + 1;
+
+    // Train immediately
+    if (newBoard[row][col].isMine) {
+      const targetOutput = new Array(CONFIG.rows * CONFIG.cols).fill(0);
+      targetOutput[move] = -1;
+      networkRef.current!.train(state, targetOutput, -1);
+      
+      return {
+        game: { ...game, board: newBoard, gameOver: true, moves: newMoves, firstClick: false },
+        won: false,
+        done: true
+      };
+    } else {
+      const gameWon = checkWin(newBoard);
+      const targetOutput = new Array(CONFIG.rows * CONFIG.cols).fill(0);
+      targetOutput[move] = 1;
+      networkRef.current!.train(state, targetOutput, gameWon ? 1 : 0.1);
+      
+      return {
+        game: { ...game, board: newBoard, gameWon, moves: newMoves, firstClick: false },
+        won: gameWon,
+        done: gameWon
+      };
+    }
   }, []);
 
   useEffect(() => {
@@ -195,37 +376,103 @@ export default function AILab() {
     const interval = setInterval(() => {
       if (!trainingRef.current) return;
 
-      const results: { won: boolean; moves: number }[] = [];
-      
-      for (let i = 0; i < speed; i++) {
-        results.push(playGame());
+      let wins = 0;
+      let totalMoves = 0;
+      let gamesFinished = 0;
+
+      // Step all visible games
+      const updatedGames = gamesRef.current.map(game => {
+        if (game.gameOver || game.gameWon) {
+          // Reset finished game
+          return {
+            id: game.id,
+            board: createEmptyBoard(CONFIG.rows, CONFIG.cols),
+            gameOver: false,
+            gameWon: false,
+            moves: 0,
+            firstClick: true,
+          };
+        }
+        
+        const result = stepGame(game);
+        if (result.done) {
+          gamesFinished++;
+          totalMoves += result.game.moves;
+          if (result.won) wins++;
+        }
+        return result.game;
+      });
+
+      gamesRef.current = updatedGames;
+      setVisibleGames([...updatedGames]);
+
+      // Also run background games
+      for (let i = 0; i < speed - 1; i++) {
+        let bgBoard = createEmptyBoard(CONFIG.rows, CONFIG.cols);
+        let bgFirstClick = true;
+        let bgMoves = 0;
+        let bgGameOver = false;
+        let bgGameWon = false;
+
+        while (!bgGameOver && !bgGameWon && bgMoves < 200) {
+          const validMoves = getValidMoves(bgBoard);
+          if (validMoves.length === 0) break;
+
+          const state = boardToInput(bgBoard);
+          const move = networkRef.current!.getAction(validMoves, state, true);
+          
+          const row = Math.floor(move / CONFIG.cols);
+          const col = move % CONFIG.cols;
+
+          if (bgFirstClick) {
+            bgBoard = placeMinesSafe(bgBoard, CONFIG.mines, row, col);
+            bgFirstClick = false;
+          }
+
+          bgBoard = revealCell(bgBoard, row, col);
+          bgMoves++;
+
+          if (bgBoard[row][col].isMine) {
+            bgGameOver = true;
+            const targetOutput = new Array(CONFIG.rows * CONFIG.cols).fill(0);
+            targetOutput[move] = -1;
+            networkRef.current!.train(state, targetOutput, -1);
+          } else {
+            bgGameWon = checkWin(bgBoard);
+            const targetOutput = new Array(CONFIG.rows * CONFIG.cols).fill(0);
+            targetOutput[move] = 1;
+            networkRef.current!.train(state, targetOutput, bgGameWon ? 1 : 0.1);
+          }
+        }
+
+        gamesFinished++;
+        totalMoves += bgMoves;
+        if (bgGameWon) wins++;
       }
 
+      networkRef.current?.decayEpsilon();
+
       setMetrics(prev => {
-        const newRecentWins = [...prev.recentWins, ...results.map(r => r.won)].slice(-100);
-        const totalMoves = prev.totalMoves + results.reduce((sum, r) => sum + r.moves, 0);
-        const gamesPlayed = prev.gamesPlayed + results.length;
-        const gamesWon = prev.gamesWon + results.filter(r => r.won).length;
+        const newRecentWins = [...prev.recentWins, ...Array(gamesFinished).fill(false).map((_, i) => i < wins)].slice(-100);
+        const newTotalMoves = prev.totalMoves + totalMoves;
+        const newGamesPlayed = prev.gamesPlayed + gamesFinished;
+        const newGamesWon = prev.gamesWon + wins;
         
         return {
-          gamesPlayed,
-          gamesWon,
+          gamesPlayed: newGamesPlayed,
+          gamesWon: newGamesWon,
           currentWinRate: newRecentWins.length > 0 
             ? newRecentWins.filter(Boolean).length / newRecentWins.length * 100 
             : 0,
-          averageMoves: gamesPlayed > 0 ? totalMoves / gamesPlayed : 0,
-          totalMoves,
+          averageMoves: newGamesPlayed > 0 ? newTotalMoves / newGamesPlayed : 0,
+          totalMoves: newTotalMoves,
           recentWins: newRecentWins,
         };
       });
-
-      if (results.length > 0) {
-        setCurrentBoard(createEmptyBoard(CONFIG.rows, CONFIG.cols));
-      }
-    }, 100);
+    }, 50);
 
     return () => clearInterval(interval);
-  }, [isTraining, speed, playGame]);
+  }, [isTraining, speed, stepGame]);
 
   const handleStart = () => {
     if (networkRef.current) {
@@ -258,13 +505,16 @@ export default function AILab() {
       totalMoves: 0,
       recentWins: [],
     });
-  };
-
-  const getConfidenceColor = (confidence: number): string => {
-    if (confidence > 0.7) return "bg-emerald-500";
-    if (confidence > 0.5) return "bg-lime-500";
-    if (confidence > 0.3) return "bg-amber-500";
-    return "bg-red-500";
+    const newGames = Array.from({ length: NUM_VISIBLE_GAMES }, (_, i) => ({
+      id: i,
+      board: createEmptyBoard(CONFIG.rows, CONFIG.cols),
+      gameOver: false,
+      gameWon: false,
+      moves: 0,
+      firstClick: true,
+    }));
+    gamesRef.current = newGames;
+    setVisibleGames(newGames);
   };
 
   return (
@@ -396,6 +646,75 @@ export default function AILab() {
         </Card>
       )}
 
+      {/* Neural Network Visualization */}
+      <Card className="bg-slate-900 border-slate-800 p-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Network className="w-5 h-5 text-cyan-400" />
+          <h3 className="text-lg font-semibold text-slate-200">Neural Network Architecture</h3>
+        </div>
+        <p className="text-sm text-slate-400 mb-4">
+          Watch the neural network's structure and connection weights update in real-time during training.
+        </p>
+        <NetworkVisualization network={networkRef.current} />
+        <div className="flex gap-4 mt-4 text-xs text-slate-500">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-emerald-400"></div>
+            <span>Input Layer (81 cells)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-slate-500"></div>
+            <span>Hidden Layers</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-violet-400"></div>
+            <span>Output Layer (81 moves)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-0.5 bg-emerald-400/50"></div>
+            <span>Positive weight</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-0.5 bg-red-400/50"></div>
+            <span>Negative weight</span>
+          </div>
+        </div>
+      </Card>
+
+      {/* Live Game Grid */}
+      <Card className="bg-slate-900 border-slate-800 p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-200">Live AI Games</h3>
+            <p className="text-sm text-slate-400">Watch 12 AI agents play simultaneously</p>
+          </div>
+          <div className="flex gap-3 text-xs">
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded bg-slate-600"></div>
+              <span className="text-slate-500">Playing</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded bg-emerald-500/50"></div>
+              <span className="text-slate-500">Won</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded bg-red-500/50"></div>
+              <span className="text-slate-500">Lost</span>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+          {visibleGames.map((game) => (
+            <div key={game.id} className="relative">
+              <MiniBoard game={game} />
+              <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold
+                {game.gameWon ? "bg-emerald-500 text-white" : game.gameOver ? "bg-red-500 text-white" : "bg-slate-700 text-slate-300"}">
+                {game.moves}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
       {/* Recent Performance Chart */}
       <Card className="bg-slate-900 border-slate-800 p-4">
         <h3 className="text-lg font-semibold mb-4 text-slate-200">Recent Performance (Last 100 Games)</h3>
@@ -416,43 +735,6 @@ export default function AILab() {
         <div className="flex justify-between text-xs text-slate-500 mt-2">
           <span>Oldest</span>
           <span>Most Recent</span>
-        </div>
-      </Card>
-
-      {/* Board Visualization */}
-      <Card className="bg-slate-900 border-slate-800 p-4">
-        <h3 className="text-lg font-semibold mb-4 text-slate-200">Board Visualization</h3>
-        <p className="text-sm text-slate-400 mb-4">
-          Watch the AI explore the board. Each cell shows the AI's confidence level for that position.
-        </p>
-        <div
-          className="grid gap-1 mx-auto"
-          style={{
-            gridTemplateColumns: `repeat(${CONFIG.cols}, minmax(0, 2rem))`,
-            width: "fit-content",
-          }}
-        >
-          {currentBoard.map((row, rowIdx) =>
-            row.map((cell, colIdx) => {
-              const confidence = confidenceMap[rowIdx * CONFIG.cols + colIdx] || 0.5;
-              return (
-                <div
-                  key={`${rowIdx}-${colIdx}`}
-                  className={`w-8 h-8 rounded flex items-center justify-center text-xs font-mono ${
-                    cell.isRevealed
-                      ? cell.isMine
-                        ? "bg-red-500"
-                        : "bg-slate-700"
-                      : getConfidenceColor(confidence)
-                  }`}
-                >
-                  {cell.isRevealed && !cell.isMine && cell.adjacentMines > 0
-                    ? cell.adjacentMines
-                    : ""}
-                </div>
-              );
-            })
-          )}
         </div>
       </Card>
     </div>
