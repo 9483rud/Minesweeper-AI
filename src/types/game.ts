@@ -7,22 +7,19 @@ export interface Cell {
   adjacentMines: number;
 }
 
-export interface GameState {
-  board: Cell[][];
-  gameOver: boolean;
-  gameWon: boolean;
-  minesCount: number;
-  flagsPlaced: number;
-  firstClick: boolean;
-  startTime: number | null;
-  elapsedTime: number;
-}
-
 export interface GameConfig {
   rows: number;
   cols: number;
   mines: number;
 }
+
+export type Difficulty = "beginner" | "intermediate" | "expert";
+
+export const DIFFICULTY_CONFIGS: Record<Difficulty, GameConfig> = {
+  beginner: { rows: 9, cols: 9, mines: 10 },
+  intermediate: { rows: 16, cols: 16, mines: 40 },
+  expert: { rows: 16, cols: 30, mines: 99 },
+};
 
 export interface TrainingMetrics {
   gamesPlayed: number;
@@ -31,11 +28,4 @@ export interface TrainingMetrics {
   averageMoves: number;
   totalMoves: number;
   recentWins: boolean[];
-}
-
-export interface NeuralNetworkConfig {
-  learningRate: number;
-  epsilon: number;
-  epsilonDecay: number;
-  hiddenLayers: number[];
 }
