@@ -148,27 +148,32 @@ export default function Minesweeper({ difficulty }: MinesweeperProps) {
     if (board[row][col].isFlagged || board[row][col].isRevealed) return;
 
     let currentBoard = board;
-    let currentConfig = config;
 
     if (firstClick) {
       currentBoard = placeMines(board, config, row, col);
-      currentConfig = config; // config doesn't change
       setFirstClick(false);
       setGameState("playing");
     }
 
-    const newBoard = revealCell(currentBoard, row, col, currentConfig);
+    const newBoard = revealCell(currentBoard, row, col, config);
 
     if (newBoard[row][col].isMine) {
-      // Reveal all mines
-      const finalBoard = newBoard.map(r => r.map(c => 
-        c.isMine ? { ...c, isRevealed: true } : c
-      ));
+      // Game over - reveal all mines and show incorrect flags
+      const finalBoard = newBoard.map(r => r.map(c => {
+        if (c.isMine) {
+          // Reveal all mines
+          return { ...c, isRevealed: true };
+        } else if (c.isFlagged) {
+          // Remove flags from non-mine cells (incorrect flags)
+          return { ...c, isFlagged: false };
+        }
+        return c;
+      }));
       setBoard(finalBoard);
       setGameState("lost");
     } else {
       setBoard(newBoard);
-      if (checkWin(newBoard, currentConfig)) {
+      if (checkWin(newBoard, config)) {
         // Reveal all remaining cells on win
         const finalBoard = newBoard.map(r => r.map(c => 
           c.isMine ? c : { ...c, isRevealed: true }
@@ -196,19 +201,19 @@ export default function Minesweeper({ difficulty }: MinesweeperProps) {
     if (!board[row][col].isRevealed || board[row][col].adjacentMines === 0) return;
 
     // Count adjacent flags
-    let flagCount = 0;
+    let adjacentFlagCount = 0;
     for (let dr = -1; dr <= 1; dr++) {
       for (let dc = -1; dc <= 1; dc++) {
         const nr = row + dr;
         const nc = col + dc;
         if (nr >= 0 && nr < config.rows && nc >= 0 && nc < config.cols) {
-          if (board[nr][nc].isFlagged) flagCount++;
+          if (board[nr][nc].isFlagged) adjacentFlagCount++;
         }
       }
     }
 
     // If flags match adjacent mines, reveal all non-flagged adjacent cells
-    if (flagCount === board[row][col].adjacentMines) {
+    if (adjacentFlagCount === board[row][col].adjacentMines) {
       let newBoard = board.map(r => r.map(c => ({ ...c })));
       let hitMine = false;
 
@@ -229,9 +234,15 @@ export default function Minesweeper({ difficulty }: MinesweeperProps) {
       }
 
       if (hitMine) {
-        const finalBoard = newBoard.map(r => r.map(c => 
-          c.isMine ? { ...c, isRevealed: true } : c
-        ));
+        // Game over - reveal all mines and show incorrect flags
+        const finalBoard = newBoard.map(r => r.map(c => {
+          if (c.isMine) {
+            return { ...c, isRevealed: true };
+          } else if (c.isFlagged) {
+            return { ...c, isFlagged: false };
+          }
+          return c;
+        }));
         setBoard(finalBoard);
         setGameState("lost");
       } else {
