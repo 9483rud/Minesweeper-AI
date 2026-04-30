@@ -517,6 +517,12 @@ export default function AILab() {
     setVisibleGames(newGames);
   };
 
+  const getMoveCounterClass = (game: GameInstance): string => {
+    if (game.gameWon) return "bg-emerald-500 text-white";
+    if (game.gameOver) return "bg-red-500 text-white";
+    return "bg-slate-700 text-slate-300";
+  };
+
   return (
     <div className="space-y-6">
       {/* Controls */}
@@ -706,8 +712,7 @@ export default function AILab() {
           {visibleGames.map((game) => (
             <div key={game.id} className="relative">
               <MiniBoard game={game} />
-              <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold
-                {game.gameWon ? "bg-emerald-500 text-white" : game.gameOver ? "bg-red-500 text-white" : "bg-slate-700 text-slate-300"}">
+              <div className={`absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${getMoveCounterClass(game)}`}>
                 {game.moves}
               </div>
             </div>
